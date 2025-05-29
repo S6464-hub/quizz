@@ -2,14 +2,21 @@ import streamlit as st
 import pandas as pd
 import random
 import difflib
+import requests
+from io import BytesIO
 
 st.set_page_config(page_title="Kelime Quiz", layout="centered")
 st.title("📘 İngilizce Kelime Quiz Uygulaması")
 
+# Dosyayı GitHub'dan indiren fonksiyon
 @st.cache_data
 def load_words():
-    file_path = "ALC_WORDS_SO.xlsx"  # GitHub'da aynı klasöre koy
-    xls = pd.ExcelFile(file_path)
+    url = "https://raw.githubusercontent.com/S6464-hub/quizz/main/ALC_WORDS_SO.xlsx"
+    response = requests.get(url)
+    response.raise_for_status()
+    file_data = BytesIO(response.content)
+
+    xls = pd.ExcelFile(file_data)
     excluded_sheets = ["Book - 11", "Blok-11 Grammer"]
     included_sheets = [s for s in xls.sheet_names if s not in excluded_sheets]
 
@@ -52,13 +59,13 @@ def generate_question(word_list):
     random.shuffle(choices)
     return correct[0], correct_tr, [c[1] for c in choices]
 
-# Uygulama başlat
+# Veriyi yükle
 words = load_words()
+questions = [generate_question(words) for _ in range(min(100, len(words)))]
+
 if "q_index" not in st.session_state:
     st.session_state.q_index = 0
     st.session_state.answers = {}
-
-questions = [generate_question(words) for _ in range(min(100, len(words)))]
 
 def show_question(index):
     eng, correct_tr, options = questions[index]
