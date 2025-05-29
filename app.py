@@ -2,25 +2,21 @@ import streamlit as st
 import pandas as pd
 import random
 import difflib
-import requests
-from io import BytesIO
 
 st.set_page_config(page_title="Kelime Quiz", layout="centered")
-st.title("📘 İngilizce Kelime Quiz Uygulaması")
 
-# Dosyayı GitHub'dan indiren fonksiyon
+st.title("📘 İngilizce-Türkçe Kelime Testi")
+st.write("Lütfen .xlsx formatında kelime dosyanızı yükleyin. İkinci sütun İngilizce, üçüncü sütun Türkçe olmalıdır.")
+
+uploaded_file = st.file_uploader("📂 Dosya Seç", type=["xlsx"])
+
 @st.cache_data
-def load_words():
-    url = "https://raw.githubusercontent.com/S6464-hub/quizz/main/ALC_WORDS_SO.xlsx"
-    response = requests.get(url)
-    response.raise_for_status()
-    file_data = BytesIO(response.content)
-
-    xls = pd.ExcelFile(file_data)
+def load_words(file):
+    xls = pd.ExcelFile(file)
     excluded_sheets = ["Book - 11", "Blok-11 Grammer"]
     included_sheets = [s for s in xls.sheet_names if s not in excluded_sheets]
 
-    words = []
+    word_pairs = []
     for sheet in included_sheets:
         df = xls.parse(sheet)
         for _, row in df.iterrows():
@@ -28,10 +24,10 @@ def load_words():
                 eng = str(row[1]).strip()
                 tr = str(row[2]).strip()
                 if eng and tr and eng.lower() != 'nan':
-                    words.append((eng, tr))
+                    word_pairs.append((eng, tr))
             except:
                 continue
-    return words
+    return word_pairs
 
 def generate_question(word_list):
     correct = random.choice(word_list)
@@ -48,46 +44,45 @@ def generate_question(word_list):
         return close
 
     similar_options = similar_words(correct_tr, word_list)
-
     choices = [correct]
     while len(choices) < 4:
-        opt = random.choice(similar_options if similar_options else word_list)
-        if opt not in choices:
-            choices.append(opt)
-            if opt in similar_options:
-                similar_options.remove(opt)
-    random.shuffle(choices)
-    return correct[0], correct_tr, [c[1] for c in choices]
-
-# Veriyi yükle
-words = load_words()
-questions = [generate_question(words) for _ in range(min(100, len(words)))]
-
-if "q_index" not in st.session_state:
-    st.session_state.q_index = 0
-    st.session_state.answers = {}
-
-def show_question(index):
-    eng, correct_tr, options = questions[index]
-    st.markdown(f"### Soru {index+1}: **{eng}** kelimesinin anlamı nedir?")
-    selected = st.radio("Seçiminiz:", options, key=index)
-    if st.button("Cevabı Kontrol Et", key=f"check_{index}"):
-        st.session_state.answers[index] = selected
-        if selected == correct_tr:
-            st.success("Doğru ✅")
+        if similar_options:
+            opt = random.choice(similar_options)
+            if opt not in choices:
+                choices.append(opt)
         else:
-            st.error(f"Yanlış ❌ Doğru cevap: {correct_tr}")
+            opt = random.choice(word_list)
+            if opt != correct and opt not in choices:
+                choices.append(opt)
+    random.shuffle(choices)
+    return correct[0], correct_tr, [opt[1] for opt in choices]
 
-show_question(st.session_state.q_index)
+if uploaded_file:
+    words = load_words(uploaded_file)
+    if 'q_index' not in st.session_state:
+        st.session_state.q_index = 0
+        st.session_state.answers = {}
 
-col1, col2 = st.columns(2)
-with col1:
-    if st.session_state.q_index > 0 and st.button("← Geri"):
-        st.session_state.q_index -= 1
-with col2:
-    if st.session_state.q_index < len(questions) - 1 and st.button("İleri →"):
-        st.session_state.q_index += 1
+    questions = [generate_question(words) for _ in range(20)]
+    q_index = st.session_state.q_index
+    current = questions[q_index]
+    st.subheader(f"Soru {q_index + 1}")
+    st.write(f"'{current[0]}' kelimesinin Türkçesi nedir?")
 
-correct_count = sum(1 for i, ans in st.session_state.answers.items() if ans == questions[i][1])
-total_answered = len(st.session_state.answers)
-st.markdown(f"#### ✔️ Doğru: {correct_count}    ❌ Yanlış: {total_answered - correct_count}")
+    for idx, choice in enumerate(current[2]):
+        if st.button(choice, key=f"btn_{q_index}_{idx}"):
+            st.session_state.answers[q_index] = choice
+            st.session_state.q_index += 1
+            st.rerun()
+
+    with st.sidebar:
+        st.markdown("### 📊 Sonuçlar")
+        correct = sum(1 for i, ans in st.session_state.answers.items() if ans == questions[i][1])
+        total = len(st.session_state.answers)
+        st.write(f"✔️ Doğru: {correct}")
+        st.write(f"❌ Yanlış: {total - correct}")
+
+        if st.button("🔄 Yeniden Başla"):
+            st.session_state.q_index = 0
+            st.session_state.answers = {}
+            st.rerun()
