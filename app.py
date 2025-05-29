@@ -3,17 +3,17 @@ import pandas as pd
 import random
 import difflib
 
-# Başlık
-st.title("📚 Vocabulary Quiz")
+st.set_page_config(page_title="Kelime Quiz", layout="centered")
+st.title("📘 İngilizce Kelime Quiz Uygulaması")
 
-# Excel dosyasını yükle
 @st.cache_data
-def load_words(file_path):
+def load_words():
+    file_path = "ALC_WORDS_SO.xlsx"  # GitHub'da aynı klasöre koy
     xls = pd.ExcelFile(file_path)
     excluded_sheets = ["Book - 11", "Blok-11 Grammer"]
-    included_sheets = [sheet for sheet in xls.sheet_names if sheet not in excluded_sheets]
+    included_sheets = [s for s in xls.sheet_names if s not in excluded_sheets]
 
-    word_pairs = []
+    words = []
     for sheet in included_sheets:
         df = xls.parse(sheet)
         for _, row in df.iterrows():
@@ -21,68 +21,66 @@ def load_words(file_path):
                 eng = str(row[1]).strip()
                 tr = str(row[2]).strip()
                 if eng and tr and eng.lower() != 'nan':
-                    word_pairs.append((eng, tr))
+                    words.append((eng, tr))
             except:
                 continue
-    return word_pairs
+    return words
 
-# Dosya yükleme
-uploaded_file = st.file_uploader("📂 Lütfen kelime dosyanızı (.xlsx) yükleyin", type=["xlsx"])
+def generate_question(word_list):
+    correct = random.choice(word_list)
+    correct_tr = correct[1]
 
-if uploaded_file:
-    words = load_words(uploaded_file)
+    def similar_words(target, words, threshold=0.5):
+        close = []
+        for w in words:
+            if w == correct:
+                continue
+            seq = difflib.SequenceMatcher(None, target, w[1])
+            if seq.ratio() > threshold:
+                close.append(w)
+        return close
 
-    # Session State ile quiz durumu
-    if 'q_index' not in st.session_state:
-        st.session_state.q_index = 0
-        st.session_state.questions = []
-        st.session_state.score = {'correct': 0, 'wrong': 0}
-        st.session_state.answers = {}
+    similar_options = similar_words(correct_tr, word_list)
 
-    def generate_question(word_list):
-        correct = random.choice(word_list)
-        correct_tr = correct[1]
+    choices = [correct]
+    while len(choices) < 4:
+        opt = random.choice(similar_options if similar_options else word_list)
+        if opt not in choices:
+            choices.append(opt)
+            if opt in similar_options:
+                similar_options.remove(opt)
+    random.shuffle(choices)
+    return correct[0], correct_tr, [c[1] for c in choices]
 
-        def similar_words(target, words, threshold=0.5):
-            return [w for w in words if w != correct and difflib.SequenceMatcher(None, target, w[1]).ratio() > threshold]
+# Uygulama başlat
+words = load_words()
+if "q_index" not in st.session_state:
+    st.session_state.q_index = 0
+    st.session_state.answers = {}
 
-        choices = [correct]
-        similar = similar_words(correct_tr, word_list)
-        while len(choices) < 4:
-            opt = random.choice(similar if similar else word_list)
-            if opt not in choices:
-                choices.append(opt)
-        random.shuffle(choices)
-        return (correct[0], correct[1], [choice[1] for choice in choices])
+questions = [generate_question(words) for _ in range(min(100, len(words)))]
 
-    # Soru listesi oluştur
-    if not st.session_state.questions:
-        st.session_state.questions = [generate_question(words) for _ in range(min(100, len(words)))]
-
-    # Şu anki soru
-    q = st.session_state.questions[st.session_state.q_index]
-    eng, correct_tr, options = q
-
-    st.markdown(f"### {st.session_state.q_index + 1}. '{eng}' kelimesinin Türkçesi nedir?")
-    selected = st.radio("Seçenekler:", options)
-
-    if st.button("Cevabı Kontrol Et"):
-        if st.session_state.q_index not in st.session_state.answers:
-            st.session_state.answers[st.session_state.q_index] = selected
-            if selected == correct_tr:
-                st.session_state.score['correct'] += 1
-                st.success("✔️ Doğru!")
-            else:
-                st.session_state.score['wrong'] += 1
-                st.error(f"❌ Yanlış! Doğru cevap: {correct_tr}")
-
-    # Sonraki soru
-    if st.button("➡️ Sonraki Soru"):
-        if st.session_state.q_index < len(st.session_state.questions) - 1:
-            st.session_state.q_index += 1
+def show_question(index):
+    eng, correct_tr, options = questions[index]
+    st.markdown(f"### Soru {index+1}: **{eng}** kelimesinin anlamı nedir?")
+    selected = st.radio("Seçiminiz:", options, key=index)
+    if st.button("Cevabı Kontrol Et", key=f"check_{index}"):
+        st.session_state.answers[index] = selected
+        if selected == correct_tr:
+            st.success("Doğru ✅")
         else:
-            st.info("🎉 Quiz bitti!")
+            st.error(f"Yanlış ❌ Doğru cevap: {correct_tr}")
 
-    # Skor durumu
-    st.write("---")
-    st.markdown(f"**✅ Doğru:** {st.session_state.score['correct']} &nbsp;&nbsp;&nbsp;&nbsp; ❌ Yanlış: {st.session_state.score['wrong']}")
+show_question(st.session_state.q_index)
+
+col1, col2 = st.columns(2)
+with col1:
+    if st.session_state.q_index > 0 and st.button("← Geri"):
+        st.session_state.q_index -= 1
+with col2:
+    if st.session_state.q_index < len(questions) - 1 and st.button("İleri →"):
+        st.session_state.q_index += 1
+
+correct_count = sum(1 for i, ans in st.session_state.answers.items() if ans == questions[i][1])
+total_answered = len(st.session_state.answers)
+st.markdown(f"#### ✔️ Doğru: {correct_count}    ❌ Yanlış: {total_answered - correct_count}")
